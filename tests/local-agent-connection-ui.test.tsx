@@ -18,8 +18,10 @@ afterEach(async () => { await act(async () => root?.unmount()); host?.remove(); 
 function serve(initial: Partial<Record<"claude-code" | "antigravity", Partial<LocalAgentStatus>>>) {
 	let statuses: LocalAgentStatus[] = LOCAL_AGENTS.map((a) => ({ ...emptyLocalAgentStatus(a.providerId), ...initial[a.providerId] }));
 	const posts: Array<[string, unknown]> = [];
+	const controlHeaders: Array<[string, string | null]> = [];
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input);
+		controlHeaders.push([init?.method ?? "GET", new Headers(init?.headers).get("x-learnharness-subscriptions")]);
 		if (init?.method === "POST") {
 			const id = url.split("/").pop()!, body = JSON.parse(String(init.body));
 			posts.push([id, body]);
@@ -28,7 +30,7 @@ function serve(initial: Partial<Record<"claude-code" | "antigravity", Partial<Lo
 		}
 		return new Response(JSON.stringify({ statuses }), { status: 200, headers: { "Content-Type": "application/json" } });
 	}) as typeof fetch;
-	return { posts };
+	return { posts, controlHeaders };
 }
 async function mount(children: React.ReactNode = <LocalAgentConnections />) {
 	host = document.createElement("div"); document.body.append(host); root = createRoot(host);
@@ -94,4 +96,13 @@ test("a slot pinned to a connection with background use off offers to enable it"
 	serve({ "claude-code": { installed: true, signedIn: true, enabled: true, connected: true, allowBackgroundUse: false } });
 	await mount(<LocalAgentBackgroundAccess provider="claude-code" />);
 	assert(button("Enable background use"));
+});
+
+test("status reads and control actions carry the same-origin control header", async () => {
+	const { controlHeaders } = serve({ "claude-code": { installed: true, signedIn: true } });
+	await mount();
+	await click(button("Connect", document.querySelector('[data-testid="claude-code-connection"]')!));
+	await click(dialog().querySelector<HTMLElement>('[role="switch"][aria-label="Use Claude in LearnHarness"]')!);
+	assert(controlHeaders.some(([method]) => method === "GET") && controlHeaders.some(([method]) => method === "POST"));
+	for (const [method, header] of controlHeaders) assert.equal(header, "1", `${method} lacks x-learnharness-subscriptions`);
 });

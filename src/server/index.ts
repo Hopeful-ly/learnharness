@@ -43,7 +43,7 @@ export * from "./compaction.ts";
 export { runPiTurn, piTurnResponse, type PiTurnHandle, type PiTurnSpec } from "./pi/ui-stream.ts";
 export * from "./observability.ts";
 export * from "./model-catalog.ts";
-export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web-subscription-http.ts";
+export { subscriptionControlsResponse, subscriptionBrowserResponse, subscriptionRequestAuthorized } from "./web-subscription-http.ts";
 // Local agent connections (§8.2): Claude Code / Antigravity status + controls.
 export * from "./local-agents.ts";
 export { sessionCost } from "./pricing.ts";

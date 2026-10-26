@@ -4,14 +4,17 @@
  * consent | signIn | cancelSignIn. Sign-in (Antigravity) runs inside the
  * vendor runtime, which opens the browser itself; the response returns at
  * once with `pending` set and the client polls GET for the outcome.
+ * Same-origin gated like the sibling /api/subscriptions controls: a
+ * cross-site page must not toggle connections or start a sign-in.
  */
-import { applyLocalAgentAction, isLocalAgentId, parseLocalAgentAction } from "@/src/server";
+import { applyLocalAgentAction, isLocalAgentId, parseLocalAgentAction, subscriptionRequestAuthorized } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ provider: string }> };
 
 export async function POST(req: Request, { params }: Params) {
+	if (!subscriptionRequestAuthorized(req)) return Response.json({ error: "Local agent controls require a same-origin LearnHarness request." }, { status: 403 });
 	const { provider } = await params;
 	if (!isLocalAgentId(provider)) return Response.json({ error: `unknown connection "${provider}"` }, { status: 404 });
 	let body: unknown;

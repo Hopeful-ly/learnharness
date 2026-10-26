@@ -21,20 +21,22 @@ export function localAgentNotice(agent: LocalAgentDescriptor): string {
 export const LOCAL_AGENT_BACKGROUND_HINT = "Allow LearnHarness helper agents and automatic follow-ups to use this connection.";
 const CONTROL_ERROR = "The connection could not be changed. Try again.";
 const POLL_MS = 2_000;
+/** The same-origin control header the sibling subscription client sends. */
+const CONTROL_HEADER = { "x-learnharness-subscriptions": "1" };
 
 export function emptyLocalAgentStatus(providerId: LocalAgentProviderId): LocalAgentStatus {
 	return { providerId, enabled: false, allowBackgroundUse: true, installed: false, signedIn: false, pending: false, connected: false, generation: 0, checkedAt: 0 };
 }
 
 async function readStatuses(refresh = false): Promise<LocalAgentStatus[]> {
-	const response = await fetch(`/api/connections/local${refresh ? "?refresh=1" : ""}`, { cache: "no-store" });
+	const response = await fetch(`/api/connections/local${refresh ? "?refresh=1" : ""}`, { cache: "no-store", headers: CONTROL_HEADER });
 	if (!response.ok) throw new Error(`status ${response.status}`);
 	const { statuses } = (await response.json()) as { statuses?: unknown };
 	if (!Array.isArray(statuses)) throw new Error("malformed status");
 	return statuses as LocalAgentStatus[];
 }
 async function postAction(providerId: LocalAgentProviderId, action: LocalAgentAction): Promise<LocalAgentStatus[]> {
-	const response = await fetch(`/api/connections/local/${providerId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) });
+	const response = await fetch(`/api/connections/local/${providerId}`, { method: "POST", headers: { "Content-Type": "application/json", ...CONTROL_HEADER }, body: JSON.stringify(action) });
 	const body = await response.json().catch(() => ({})) as { statuses?: LocalAgentStatus[]; error?: string };
 	if (!response.ok || !body.statuses) throw new Error(body.error ?? CONTROL_ERROR);
 	return body.statuses;
