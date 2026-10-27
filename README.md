@@ -54,6 +54,30 @@ Already pay for a Claude or Google AI plan? Under Providers → Subscriptions, L
 
 All three platforms support in-app updates.
 
+## Run from source
+
+Needs [Git](https://git-scm.com) and [Node.js](https://nodejs.org) 22 or newer. The script installs dependencies on first run, starts the dev server in the background (or reuses one already running), and opens the desktop window.
+
+**Linux / macOS**
+
+```bash
+git clone https://github.com/Hopeful-ly/learnharness.git
+cd learnharness
+bash scripts/run.sh
+```
+
+**Windows (PowerShell)**
+
+```powershell
+git clone https://github.com/Hopeful-ly/learnharness.git
+cd learnharness
+powershell -ExecutionPolicy Bypass -File scripts\run.ps1
+```
+
+Run the same last line to start it again later. After pulling updates, run `npm ci` once before launching. Closing the window leaves the server running on `127.0.0.1:3000` for a fast next launch; its log is `lh-dev.log` in your temp folder.
+
+On Linux, if Electron exits with a "SUID sandbox helper" error, run `sudo chown root node_modules/electron/dist/chrome-sandbox && sudo chmod 4755 node_modules/electron/dist/chrome-sandbox` once.
+
 ## Your keys, your data
 
 - **Your keys and models.** No LearnHarness subscription or markup. You pay your providers for usage; a live cost meter shows model costs.
