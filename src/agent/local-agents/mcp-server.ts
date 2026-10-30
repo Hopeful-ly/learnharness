@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 /**
  * The loopback tool bridge (local agent connections, docs/architecture.md
  * §8.2): a minimal MCP Streamable-HTTP server that exposes the CURRENT
- * agent step's app tools to a locally installed vendor CLI (Claude Code,
+ * agent step's app tools to a locally installed vendor runtime (the Antigravity ACP server,
  * the Antigravity ACP server). The CLI runs its own agent loop; the app's
  * pi-agent-core loop stays the one that EXECUTES tools — a `tools/call`
  * here only hands the call to the run (run.ts), which surfaces it to pi
@@ -159,6 +159,4 @@ export async function startToolBridge(options: {
 	};
 }
 
-/** The name a CLI shows the model for a bridged tool (Claude Code prefixes MCP tools). */
-export const CLAUDE_TOOL_PREFIX = `mcp__${SERVER_NAME}__`;
 export const BRIDGE_SERVER_NAME = SERVER_NAME;

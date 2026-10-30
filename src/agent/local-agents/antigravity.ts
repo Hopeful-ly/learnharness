@@ -50,8 +50,9 @@ export function antigravityTokenPresent(): Promise<boolean> {
 	return new Promise((resolve) => execFile("/usr/bin/security", ["find-generic-password", "-s", "gemini", "-a", "antigravity-acp"], { timeout: 5_000 }, (error) => resolve(!error)));
 }
 
-function childEnv(): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = { ...process.env };
+/** The ACP server's environment: the server's own, minus every app-held key. */
+export function antigravityChildEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { ...base };
 	for (const name of appHeldEnvVars()) delete env[name];
 	return env;
 }
@@ -85,7 +86,7 @@ async function startAcp(binary: string, handlers: AcpHandlers = {}, signal?: Abo
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lh-antigravity-"));
 	const cwd = path.join(dir, "workspace");
 	fs.mkdirSync(cwd, { mode: 0o700 });
-	const child = spawn(binary, serverArgs(), { cwd, env: childEnv(), stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+	const child = spawn(binary, serverArgs(), { cwd, env: antigravityChildEnv(), stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
 	let stderr = "", closed = false;
 	child.stderr!.setEncoding("utf8");
 	child.stderr!.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-4000); });

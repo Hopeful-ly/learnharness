@@ -15,7 +15,7 @@ let root: Root | undefined, host: HTMLDivElement | undefined;
 const realFetch = globalThis.fetch;
 afterEach(async () => { await act(async () => root?.unmount()); host?.remove(); root = undefined; host = undefined; globalThis.fetch = realFetch; });
 
-function serve(initial: Partial<Record<"claude-code" | "antigravity", Partial<LocalAgentStatus>>>) {
+function serve(initial: Partial<Record<"antigravity", Partial<LocalAgentStatus>>>) {
 	let statuses: LocalAgentStatus[] = LOCAL_AGENTS.map((a) => ({ ...emptyLocalAgentStatus(a.providerId), ...initial[a.providerId] }));
 	const posts: Array<[string, unknown]> = [];
 	const controlHeaders: Array<[string, string | null]> = [];
@@ -39,46 +39,39 @@ async function mount(children: React.ReactNode = <LocalAgentConnections />) {
 }
 const button = (text: string, scope: ParentNode = document) => { const found = [...scope.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === text); assert(found, `missing button ${text}`); return found; };
 const dialog = () => document.querySelector<HTMLElement>('[data-testid="local-agent-dialog"]')!;
+const row = () => document.querySelector<HTMLElement>('[data-testid="antigravity-connection"]')!;
 async function click(element: HTMLElement) { await act(async () => { element.click(); await new Promise((resolve) => setTimeout(resolve, 0)); }); }
 
 test("rows name each vendor runtime and start disconnected", async () => {
 	serve({});
 	await mount();
 	const rows = [...document.querySelectorAll('[data-testid$="-connection"]')].map((row) => row.textContent);
-	assert.deepEqual(rows, ["Claude (Claude Code)Connect", "Antigravity (Antigravity ACP server)Connect"]);
+	assert.deepEqual(rows, ["Antigravity (Antigravity ACP server)Connect"]);
 });
 
-test("Claude: the dialog discloses the data flow, shows the CLI's own account, and the toggle enables it", async () => {
-	const { posts } = serve({ "claude-code": { installed: true, version: "2.1.310", signedIn: true, account: "learner@example.com", plan: "Max", usesSubscription: true } });
+test("Antigravity: the dialog discloses the data flow, shows the runtime's own account, and the toggle enables it", async () => {
+	const { posts } = serve({ antigravity: { installed: true, version: "1.2.3", signedIn: true, account: "learner@example.com", plan: "Pro", usesSubscription: true } });
 	await mount();
-	await click(button("Connect", document.querySelector('[data-testid="claude-code-connection"]')!));
+	await click(button("Connect", row()));
 	assert.equal(dialog().querySelector('[data-testid="local-agent-notice"]')?.textContent, localAgentNotice(LOCAL_AGENTS[0]!));
-	assert.match(localAgentNotice(LOCAL_AGENTS[0]!), /never sees or stores your Anthropic sign-in/);
-	assert.equal(dialog().querySelector('[data-testid="local-agent-account"]')?.textContent, "Signed in as learner@example.com · Max plan.");
+	assert.match(localAgentNotice(LOCAL_AGENTS[0]!), /never sees or stores your Google sign-in/);
+	assert.equal(dialog().querySelector('[data-testid="local-agent-account"]')?.textContent, "Signed in as learner@example.com · Pro plan.");
 	assert(!dialog().textContent?.includes("Sign in with Google"));
-	await click(dialog().querySelector<HTMLElement>('[role="switch"][aria-label="Use Claude in LearnHarness"]')!);
-	assert.deepEqual(posts.at(-1), ["claude-code", { action: "enable", enabled: true }]);
+	await click(dialog().querySelector<HTMLElement>('[role="switch"][aria-label="Use Antigravity in LearnHarness"]')!);
+	assert.deepEqual(posts.at(-1), ["antigravity", { action: "enable", enabled: true }]);
 });
 
-test("Claude: when signed out, sign-in stays in the terminal — the app offers no login", async () => {
-	serve({ "claude-code": { installed: true, signedIn: false } });
+test("Antigravity: a non-subscription sign-in is called out", async () => {
+	serve({ antigravity: { installed: true, signedIn: true, usesSubscription: false } });
 	await mount();
-	await click(button("Connect", document.querySelector('[data-testid="claude-code-connection"]')!));
-	assert.match(dialog().textContent ?? "", /Run claude auth login in a terminal, then Refresh\./);
-	assert(![...dialog().querySelectorAll("button")].some((b) => /sign in/i.test(b.textContent ?? "")));
-});
-
-test("Claude: a non-subscription sign-in is called out", async () => {
-	serve({ "claude-code": { installed: true, signedIn: true, usesSubscription: false } });
-	await mount();
-	await click(button("Connect", document.querySelector('[data-testid="claude-code-connection"]')!));
+	await click(button("Connect", row()));
 	assert(dialog().querySelector('[data-testid="local-agent-billing-warning"]'));
 });
 
 test("Antigravity: sign-in is delegated to the ACP server and shows progress", async () => {
 	const { posts } = serve({ antigravity: { installed: true, signedIn: false } });
 	await mount();
-	await click(button("Connect", document.querySelector('[data-testid="antigravity-connection"]')!));
+	await click(button("Connect", row()));
 	await click(button("Sign in with Google", dialog()));
 	assert.deepEqual(posts.at(-1), ["antigravity", { action: "signIn" }]);
 	assert.match(dialog().textContent ?? "", /Finish signing in with Google in your browser/);
@@ -88,21 +81,21 @@ test("Antigravity: sign-in is delegated to the ACP server and shows progress", a
 test("a missing runtime links to its official install page", async () => {
 	serve({});
 	await mount();
-	await click(button("Connect", document.querySelector('[data-testid="antigravity-connection"]')!));
-	assert.equal(dialog().querySelector("a")?.getAttribute("href"), LOCAL_AGENTS[1]!.installUrl);
+	await click(button("Connect", row()));
+	assert.equal(dialog().querySelector("a")?.getAttribute("href"), LOCAL_AGENTS[0]!.installUrl);
 });
 
 test("a slot pinned to a connection with background use off offers to enable it", async () => {
-	serve({ "claude-code": { installed: true, signedIn: true, enabled: true, connected: true, allowBackgroundUse: false } });
-	await mount(<LocalAgentBackgroundAccess provider="claude-code" />);
+	serve({ antigravity: { installed: true, signedIn: true, enabled: true, connected: true, allowBackgroundUse: false } });
+	await mount(<LocalAgentBackgroundAccess provider="antigravity" />);
 	assert(button("Enable background use"));
 });
 
 test("status reads and control actions carry the same-origin control header", async () => {
-	const { controlHeaders } = serve({ "claude-code": { installed: true, signedIn: true } });
+	const { controlHeaders } = serve({ antigravity: { installed: true, signedIn: true } });
 	await mount();
-	await click(button("Connect", document.querySelector('[data-testid="claude-code-connection"]')!));
-	await click(dialog().querySelector<HTMLElement>('[role="switch"][aria-label="Use Claude in LearnHarness"]')!);
+	await click(button("Connect", row()));
+	await click(dialog().querySelector<HTMLElement>('[role="switch"][aria-label="Use Antigravity in LearnHarness"]')!);
 	assert(controlHeaders.some(([method]) => method === "GET") && controlHeaders.some(([method]) => method === "POST"));
 	for (const [method, header] of controlHeaders) assert.equal(header, "1", `${method} lacks x-learnharness-subscriptions`);
 });

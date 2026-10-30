@@ -17,18 +17,18 @@ function request(method: "GET" | "POST", path: string, body?: unknown) {
 }
 
 test("POST rejects cross-origin, header-less, origin-less and cross-site requests before acting", async () => {
-	const forged = request("POST", "/api/connections/local/claude-code", { action: "enable", enabled: true }); forged.headers.set("origin", "https://unrelated.invalid");
-	assert.equal((await POST(forged, params("claude-code"))).status, 403);
-	const noHeader = request("POST", "/api/connections/local/claude-code", { action: "enable", enabled: true }); noHeader.headers.delete("x-learnharness-subscriptions");
-	assert.equal((await POST(noHeader, params("claude-code"))).status, 403);
+	const forged = request("POST", "/api/connections/local/antigravity", { action: "enable", enabled: true }); forged.headers.set("origin", "https://unrelated.invalid");
+	assert.equal((await POST(forged, params("antigravity"))).status, 403);
+	const noHeader = request("POST", "/api/connections/local/antigravity", { action: "enable", enabled: true }); noHeader.headers.delete("x-learnharness-subscriptions");
+	assert.equal((await POST(noHeader, params("antigravity"))).status, 403);
 	const noOrigin = request("POST", "/api/connections/local/antigravity", { action: "signIn" }); noOrigin.headers.delete("origin");
 	assert.equal((await POST(noOrigin, params("antigravity"))).status, 403);
-	const crossSite = request("POST", "/api/connections/local/claude-code", { action: "consent", allowBackgroundUse: false }); crossSite.headers.set("sec-fetch-site", "cross-site");
-	assert.equal((await POST(crossSite, params("claude-code"))).status, 403);
+	const crossSite = request("POST", "/api/connections/local/antigravity", { action: "consent", allowBackgroundUse: false }); crossSite.headers.set("sec-fetch-site", "cross-site");
+	assert.equal((await POST(crossSite, params("antigravity"))).status, 403);
 });
 
 test("POST from the app itself passes the gate and reaches validation", async () => {
-	assert.equal((await POST(request("POST", "/api/connections/local/claude-code", { action: "nope" }), params("claude-code"))).status, 400);
+	assert.equal((await POST(request("POST", "/api/connections/local/antigravity", { action: "nope" }), params("antigravity"))).status, 400);
 	assert.equal((await POST(request("POST", "/api/connections/local/unknown", { action: "refresh" }), params("unknown"))).status, 404);
 });
 

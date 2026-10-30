@@ -3,9 +3,11 @@
  * vendor CLI the learner installed and signed into themselves. The CLI owns
  * every credential; the app never sees, stores, or refreshes a token. The
  * persisted provider ids are distinct routes — they never fall back to API
- * keys or to the app's own subscription connections.
+ * keys or to the app's own subscription connections. (Claude Code is not a
+ * local agent connection: it is the native `claude-code` provider in
+ * src/agent/claude-code/, opted into under Settings → Providers.)
  */
-export type LocalAgentProviderId = "claude-code" | "antigravity";
+export type LocalAgentProviderId = "antigravity";
 
 export interface LocalAgentDescriptor {
 	providerId: LocalAgentProviderId;
@@ -22,7 +24,6 @@ export interface LocalAgentDescriptor {
 }
 
 export const LOCAL_AGENTS: readonly LocalAgentDescriptor[] = [
-	{ providerId: "claude-code", label: "Claude", vendor: "Anthropic", runtime: "Claude Code", installUrl: "https://code.claude.com/docs/en/setup", signInCommand: "claude auth login" },
 	{ providerId: "antigravity", label: "Antigravity", vendor: "Google", runtime: "Antigravity ACP server", installUrl: "https://antigravity.google/docs/ide/extensions" },
 ];
 

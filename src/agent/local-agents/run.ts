@@ -161,7 +161,7 @@ export interface LocalRunOptions {
 	providerId: LocalAgentProviderId;
 	signature: string;
 	model: Model<Api>;
-	/** ACP: tool calls are only visible when the MCP request arrives. Claude declares them in the stream first. */
+	/** ACP: tool calls are only visible when the MCP request arrives. Stream-first runtimes declare them in the stream first. */
 	surfaceOnArrival: boolean;
 	tools: BridgeTool[];
 	idleMs: number;
@@ -210,7 +210,7 @@ export class LocalRun {
 	thinking(delta: string) { if (this.writer && !this.writer.ended) this.writer.thinking(delta); else if (delta) this.buffered.push({ kind: "thinking", delta }); }
 	usage(usage: Partial<Omit<Usage, "cost" | "totalTokens">>) { this.writer?.usage(usage); }
 
-	/** Claude: a tool_use block completed in the stream. */
+	/** Stream-first runtimes: a tool_use block completed in the stream. */
 	declareToolCall(call: DeclaredCall) {
 		if (this.closed) return;
 		const record: CallRecord = { ...call, matched: false };
@@ -226,13 +226,13 @@ export class LocalRun {
 	}
 
 	/**
-	 * Claude: a new assistant message began. While parked that means the
+	 * Stream-first runtimes: a new assistant message began. While parked that means the
 	 * CLI moved on without pi's results (it settled a call itself) — the
 	 * two conversations no longer line up, so the next step cold-starts.
 	 */
 	messageStarted() { if (this.state === "parked") this.close(); }
 
-	/** Claude: one assistant message ended. With tool calls the step parks; without, the turn is over. */
+	/** Stream-first runtimes: one assistant message ended. With tool calls the step parks; without, the turn is over. */
 	endMessage(reason: "stop" | "length") {
 		if (this.state === "parked") { this.close(); return; }
 		if (!this.writer || this.writer.ended) return;
@@ -240,7 +240,7 @@ export class LocalRun {
 		else this.finish(reason);
 	}
 
-	/** The CLI's whole turn completed (ACP prompt response, Claude result). */
+	/** The CLI's whole turn completed (ACP prompt response, a stream-first runtime's result). */
 	endTurn(reason: "stop" | "length") {
 		if (this.writer && !this.writer.ended) {
 			// Calls surfaced but the CLI's turn is over: pi still runs them, then cold-starts.

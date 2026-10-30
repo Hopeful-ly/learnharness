@@ -14,7 +14,7 @@ process.env.LH_DATA_DIR = path.join(directory, "data");
 const { startToolBridge } = await import("../src/agent/local-agents/mcp-server.ts");
 const { createRun, findRun, StepWriter } = await import("../src/agent/local-agents/run.ts");
 const { renderTranscript } = await import("../src/agent/local-agents/transcript.ts");
-const { claudeChildEnv } = await import("../src/agent/local-agents/claude.ts");
+const { antigravityChildEnv } = await import("../src/agent/local-agents/antigravity.ts");
 const { configureAppHeldEnvVars } = await import("../src/agent/local-agents/binaries.ts");
 const { configureLocalAgentPreferences, setLocalAgentAdapter, refreshLocalAgents, localAgentStatus } = await import("../src/agent/local-agents/state.ts");
 const { localAgentPreferenceStore } = await import("../src/store/local-agents.ts");
@@ -65,11 +65,11 @@ test("a CLI that abandons a parked call is detected", async () => {
 	} finally { await bridge.close().catch(() => {}); }
 });
 
-const model = { id: "m", name: "m", api: "claude-code-cli", provider: "claude-code", baseUrl: "", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000, maxTokens: 100 } as never;
+const model = { id: "m", name: "m", api: "antigravity-acp", provider: "antigravity", baseUrl: "", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000, maxTokens: 100 } as never;
 const result = (id: string, text: string): ToolResultMessage => ({ role: "toolResult", toolCallId: id, toolName: "lookup", content: [{ type: "text", text }], isError: false, timestamp: 0 });
 
 test("a parked run resumes only for exactly its pending calls, same prompt/tools/model, nothing appended", async () => {
-	const run = createRun({ key: "k1", providerId: "claude-code", signature: "sig", model, surfaceOnArrival: false, tools: [], idleMs: 60_000 });
+	const run = createRun({ key: "k1", providerId: "antigravity", signature: "sig", model, surfaceOnArrival: false, tools: [], idleMs: 60_000 });
 	const out = new AssistantMessageEventStream();
 	run.attach(new StepWriter(out, model), [{ role: "user", content: "q", timestamp: 0 }]);
 	run.declareToolCall({ id: "call-1", name: "lookup", arguments: { topic: "a" } });
@@ -110,7 +110,7 @@ test("ACP-style runs surface tool calls when the MCP request arrives", async () 
 });
 
 test("closing a run answers every parked call so no CLI hangs", async () => {
-	const run = createRun({ key: "k3", providerId: "claude-code", signature: "sig", model, surfaceOnArrival: false, tools: [], idleMs: 60_000 });
+	const run = createRun({ key: "k3", providerId: "antigravity", signature: "sig", model, surfaceOnArrival: false, tools: [], idleMs: 60_000 });
 	run.attach(new StepWriter(new AssistantMessageEventStream(), model), []);
 	run.declareToolCall({ id: "c", name: "lookup", arguments: {} });
 	const answer = run.onBridgeCall({ name: "lookup", arguments: {}, abandoned: new AbortController().signal });
@@ -134,17 +134,17 @@ test("the transcript replays history once, then the new learner input as plain b
 	assert.deepEqual(renderTranscript([{ role: "user", content: "only", timestamp: 0 }], { images: true }), [{ type: "text", text: "only" }]);
 });
 
-test("the Claude Code child never inherits app-held provider keys or auth reroutes", () => {
-	const env = claudeChildEnv({ PATH: "/bin", HOME: "/h", ANTHROPIC_API_KEY: "k", ANTHROPIC_BASE_URL: "https://proxy", OPENAI_API_KEY: "o", CLAUDE_CODE_USE_BEDROCK: "1", CLAUDE_CODE_OAUTH_TOKEN: "learner-own-token" } as unknown as NodeJS.ProcessEnv);
-	for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "OPENAI_API_KEY", "CLAUDE_CODE_USE_BEDROCK"]) assert.equal(env[key], undefined, key);
-	assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, "learner-own-token", "the learner's own Claude Code token setup is theirs to keep");
+test("the Antigravity child never inherits app-held provider keys", () => {
+	const env = antigravityChildEnv({ PATH: "/bin", HOME: "/h", ANTHROPIC_API_KEY: "k", OPENAI_API_KEY: "o", GEMINI_API_KEY: "g", GEMINI_HOME: "/h/.gemini" } as unknown as NodeJS.ProcessEnv);
+	for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"]) assert.equal(env[key], undefined, key);
+	assert.equal(env.GEMINI_HOME, "/h/.gemini", "the learner's own Antigravity setup is theirs to keep");
 	assert.equal(env.PATH, "/bin");
 });
 
 test("preferences persist only the two choices, defaulting to off", () => {
 	assert.deepEqual(localAgentPreferenceStore.read(), {});
-	localAgentPreferenceStore.write("claude-code", { enabled: true, allowBackgroundUse: false });
-	assert.deepEqual(localAgentPreferenceStore.read(), { "claude-code": { enabled: true, allowBackgroundUse: false } });
+	localAgentPreferenceStore.write("antigravity", { enabled: true, allowBackgroundUse: false });
+	assert.deepEqual(localAgentPreferenceStore.read(), { "antigravity": { enabled: true, allowBackgroundUse: false } });
 	fs.writeFileSync(path.join(process.env.LH_DATA_DIR!, "local-agents.json"), "{not json");
 	assert.deepEqual(localAgentPreferenceStore.read(), {});
 });
@@ -158,7 +158,6 @@ test("control actions are shape-gated", () => {
 });
 
 test("usage on local agent connections reads as the plan, never dollars", () => {
-	assert.equal(subscriptionLabel("claude-code:claude-opus-5-5"), "Claude");
 	assert.equal(subscriptionLabel("antigravity:gemini-x"), "Antigravity");
 	assert.equal(isSubscriptionModel("anthropic:claude-opus-5-5"), false);
 });
@@ -177,7 +176,7 @@ test("a lone tools/call always gets a response: malformed → JSON error, no id 
 });
 
 function parkedRun(key: string, surfaceOnArrival = false) {
-	const run = createRun({ key, providerId: surfaceOnArrival ? "antigravity" : "claude-code", signature: "sig", model, surfaceOnArrival, tools: [], idleMs: 60_000 });
+	const run = createRun({ key, providerId: "antigravity", signature: "sig", model, surfaceOnArrival, tools: [], idleMs: 60_000 });
 	const out = new AssistantMessageEventStream();
 	run.attach(new StepWriter(out, model), [{ role: "user", content: "q", timestamp: 0 }]);
 	return { run, out };
@@ -230,24 +229,24 @@ test("ACP calls that arrive while parked surface in the resumed step", async () 
 
 test("tool-service keys and anything saved in the key store never reach a vendor runtime", () => {
 	configureAppHeldEnvVars(() => ["MY_SAVED_TOKEN"]);
-	const env = claudeChildEnv({ DEEPGRAM_API_KEY: "d", TAVILY_API_KEY: "t", MY_SAVED_TOKEN: "s", PATH: "/bin" } as unknown as NodeJS.ProcessEnv);
+	const env = antigravityChildEnv({ DEEPGRAM_API_KEY: "d", TAVILY_API_KEY: "t", MY_SAVED_TOKEN: "s", PATH: "/bin" } as unknown as NodeJS.ProcessEnv);
 	assert.deepEqual([env.DEEPGRAM_API_KEY, env.TAVILY_API_KEY, env.MY_SAVED_TOKEN, env.PATH], [undefined, undefined, undefined, "/bin"]);
 	configureAppHeldEnvVars(() => []);
 });
 
 test("an inconclusive sign-in check keeps the connection instead of tearing live work down", async () => {
-	const prefs: Record<string, { enabled: boolean; allowBackgroundUse: boolean }> = { "claude-code": { enabled: true, allowBackgroundUse: true } };
+	const prefs: Record<string, { enabled: boolean; allowBackgroundUse: boolean }> = { "antigravity": { enabled: true, allowBackgroundUse: true } };
 	configureLocalAgentPreferences({ read: () => prefs, write: (id, value) => { prefs[id] = value; } });
 	let uncertain = false;
 	const models = [model];
-	setLocalAgentAdapter({ providerId: "claude-code", surfaceOnArrival: false, images: false, open: async () => { throw new Error("unused"); },
+	setLocalAgentAdapter({ providerId: "antigravity", surfaceOnArrival: false, images: false, open: async () => { throw new Error("unused"); },
 		probe: async () => uncertain ? { installed: true, signedIn: false, models: [], uncertain: true } : { installed: true, signedIn: true, account: "a@b.c", models } });
-	await refreshLocalAgents({ providerId: "claude-code", force: true });
-	const before = localAgentStatus("claude-code");
+	await refreshLocalAgents({ providerId: "antigravity", force: true });
+	const before = localAgentStatus("antigravity");
 	assert.equal(before.connected, true);
 	uncertain = true;
-	await refreshLocalAgents({ providerId: "claude-code", force: true });
-	const afterStatus = localAgentStatus("claude-code");
+	await refreshLocalAgents({ providerId: "antigravity", force: true });
+	const afterStatus = localAgentStatus("antigravity");
 	assert.equal(afterStatus.connected, true);
 	assert.equal(afterStatus.generation, before.generation);
 });

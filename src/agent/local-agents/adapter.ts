@@ -28,10 +28,10 @@ export interface OpenRequest {
 	bridge: ToolBridge;
 }
 
-/** One locally installed runtime (Claude Code, the Antigravity ACP server). */
+/** One locally installed runtime (the Antigravity ACP server). */
 export interface LocalAgentAdapter {
 	providerId: LocalAgentProviderId;
-	/** Tool calls become visible only when the MCP request arrives (ACP), not in the stream first (Claude). */
+	/** Tool calls become visible only when the MCP request arrives (ACP), rather than being declared in the stream first. */
 	surfaceOnArrival: boolean;
 	/** Whether prompt image blocks are passed through. */
 	images: boolean;

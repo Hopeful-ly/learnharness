@@ -12,7 +12,8 @@
   <a href="https://learnharness.ai">Download</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="docs/development.md">Documentation</a> ·
-  <a href="https://github.com/amosblomqvist/learnharness/issues">Issues</a>
+  <a href="https://github.com/amosblomqvist/learnharness/issues">Issues</a> ·
+  <a href="https://discord.gg/5tCHHQEB2e">Discord</a>
 </p>
 
 LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
@@ -50,9 +51,11 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 
 Add your provider API key and choose your models, then start a session with what you want to understand. LearnHarness supports 30+ provider options, including OpenAI, Anthropic, Google, DeepSeek, and OpenRouter. Optional dictation and web search use separate service keys.
 
-Already pay for a Claude or Google AI plan? Under Providers → Subscriptions, LearnHarness can use the [Claude Code](https://code.claude.com/docs/en/setup) or [Antigravity](https://antigravity.google/docs/ide/extensions) installation you have signed into on this computer. Those programs keep their own sign-in, and your plan's limits and terms apply.
+Already pay for a Google AI plan? Under Providers → Subscriptions, LearnHarness can use the [Antigravity](https://antigravity.google/docs/ide/extensions) installation you have signed into on this computer. It keeps its own sign-in, and your plan's limits and terms apply. Claude Code users can enable the native Claude Code connection under Settings → Providers.
 
 All three platforms support in-app updates.
+
+**Dictation:** Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**. Choose the language below the key; **Multilingual** supports automatic recognition and mixed-language speech. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
 
 ## Run from source
 
