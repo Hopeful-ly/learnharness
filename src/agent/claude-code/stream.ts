@@ -27,7 +27,7 @@ import { parseStreamingJson, parseToolCallArguments } from "@earendil-works/pi-a
 import { externalCliEnv } from "../../core/auth-env.ts";
 import type { LhMessage } from "../../core/native-messages.ts";
 import { ClaudeLaunchError, createClaudeLauncher } from "./launch.ts";
-import { parseCliLine, type CliBlock, type CliEvent, type CliUsage } from "./cli-events.ts";
+import { parseCliLine, type CliBlock, type CliEvent, type CliStopDetails, type CliUsage } from "./cli-events.ts";
 import { ClaudeCodeError } from "./constants.ts";
 import { ContextWindowProbe } from "./context-window.ts";
 import { addLiveProcess, getLiveProcess, removeLiveProcess, type LiveProcess } from "./live-processes.ts";
@@ -72,6 +72,15 @@ const ABORT_MESSAGE = "Request was aborted";
 const START_FAILED_MESSAGE = "claude CLI failed to start";
 const NO_STOP_REASON_MESSAGE = "claude CLI ended the message without a stop reason";
 const NOT_SIGNED_IN_ERROR = "authentication_failed";
+
+/** A refusal names its policy category and explanation when the API reports them, so the learner
+ * sees why the turn stopped instead of a generic failure. */
+export function toRefusalMessage(details: CliStopDetails | undefined): string {
+	if (!details) return REFUSAL_MESSAGE;
+	const category = details.category ?? "uncategorized";
+	const explanation = details.explanation?.trim();
+	return explanation ? `${REFUSAL_MESSAGE} (${category}): ${explanation}` : `${REFUSAL_MESSAGE} (${category})`;
+}
 
 export function toEffort(level: ThinkingLevel | undefined): AnthropicEffort {
 	return level ? EFFORTS[level] : "medium";
@@ -149,6 +158,7 @@ class ClaudeTurn {
 	private readonly intents: ToolCall[] = [];
 	/** The current message called a harness tool by its bare name; the CLI rejects that call itself. */
 	skippedBareCall = false;
+	private refusal: CliStopDetails | undefined;
 	started = false;
 	finished = false;
 
@@ -217,7 +227,12 @@ class ClaudeTurn {
 
 			case "messageDelta":
 				this.updateUsage(event.usage);
+				if (event.stopDetails) this.refusal = event.stopDetails;
 				if (event.stopReason) this.setStopReason(event.stopReason);
+				return;
+
+			case "refusalDetails":
+				this.refusal = event.stopDetails;
 				return;
 
 			case "messageStop":
@@ -364,7 +379,7 @@ class ClaudeTurn {
 		const { stopReason } = this.output;
 
 		if (stopReason === "error") {
-			this.fail(this.output.errorMessage ?? REFUSAL_MESSAGE, "error");
+			this.fail(this.output.errorMessage ?? toRefusalMessage(this.refusal), "error");
 			return;
 		}
 

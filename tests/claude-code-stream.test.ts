@@ -688,6 +688,46 @@ test("refusal stop reason → error", async (t) => {
 	assert.equal(getErrorMessage(events), "The model refused to complete the request");
 });
 
+test("refusal stop details from message_delta name the category and explanation", async (t) => {
+	const { events } = await runScenario(t, [
+		streamEvent({ type: "message_start", message: { usage: {} } }),
+		streamEvent({
+			type: "message_delta",
+			delta: { stop_reason: "refusal", stop_details: { type: "refusal", category: "cyber", explanation: "This request was declined because it could enable cyber harm." } },
+			usage: { output_tokens: 0 },
+		}),
+		streamEvent({ type: "message_stop" }),
+	]);
+	assert.equal(getErrorMessage(events), "The model refused to complete the request (cyber): This request was declined because it could enable cyber harm.");
+});
+
+test("refusal stop details from the CLI's complete assistant line are kept when the stream_event omits them", async (t) => {
+	const assistantLine = JSON.stringify({
+		type: "assistant",
+		message: { role: "assistant", content: [], stop_reason: "refusal", stop_details: { type: "refusal", category: null, explanation: null } },
+	});
+	const { events } = await runScenario(t, [
+		streamEvent({ type: "message_start", message: { usage: {} } }),
+		assistantLine,
+		streamEvent({ type: "message_delta", delta: { stop_reason: "refusal" }, usage: {} }),
+		streamEvent({ type: "message_stop" }),
+	]);
+	assert.equal(getErrorMessage(events), "The model refused to complete the request (uncategorized)");
+});
+
+test("a complete assistant line without a refusal is still ignored by the parser", () => {
+	assert.equal(parseCliLine(JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "hi" }], stop_reason: "end_turn", stop_details: null } })), null);
+	assert.equal(parseCliLine(JSON.stringify({ type: "assistant", message: { role: "assistant", content: [], stop_reason: "refusal" } })), null);
+	assert.deepEqual(
+		parseCliLine(JSON.stringify({ type: "assistant", message: { role: "assistant", content: [], stop_reason: "refusal", stop_details: { type: "refusal", category: "bio", explanation: "x" } } })),
+		{ type: "refusalDetails", stopDetails: { category: "bio", explanation: "x" } },
+	);
+	assert.deepEqual(
+		parseCliLine(streamEvent({ type: "message_delta", delta: { stop_reason: "end_turn", stop_details: null }, usage: {} })),
+		{ type: "messageDelta", stopReason: "end_turn", stopDetails: null, usage: {} },
+	);
+});
+
 test("non-zero exit mid-stream → error naming the exit code, stderr logged not shown, process and temp dirs gone", async (t) => {
 	const consoleError = t.mock.method(console, "error", () => {});
 	const midStream = readFixtureLines("text.jsonl").slice(0, 5);
