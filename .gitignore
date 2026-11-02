@@ -19,3 +19,6 @@ xai-credentials.json*
 
 # dev-fresh launcher scratch (fresh-user sim): disposable per launch
 .fresh-data/
+
+# npm test scratch data dir (LH_DATA_DIR), wiped at the start of each run
+.test-data/
