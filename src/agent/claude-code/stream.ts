@@ -26,8 +26,9 @@ import { parseStreamingJson, parseToolCallArguments } from "@earendil-works/pi-a
 
 import { externalCliEnv } from "../../core/auth-env.ts";
 import type { LhMessage } from "../../core/native-messages.ts";
+import { CliSessions, freshLaunch, type CliLaunch } from "./cli-sessions.ts";
 import { ClaudeLaunchError, createClaudeLauncher } from "./launch.ts";
-import { parseCliLine, type CliBlock, type CliEvent, type CliUsage } from "./cli-events.ts";
+import { parseCliLine, type CliBlock, type CliEvent, type CliStopDetails, type CliUsage } from "./cli-events.ts";
 import { ClaudeCodeError } from "./constants.ts";
 import { ContextWindowProbe } from "./context-window.ts";
 import { addLiveProcess, getLiveProcess, removeLiveProcess, type LiveProcess } from "./live-processes.ts";
@@ -73,6 +74,15 @@ const START_FAILED_MESSAGE = "claude CLI failed to start";
 const NO_STOP_REASON_MESSAGE = "claude CLI ended the message without a stop reason";
 const NOT_SIGNED_IN_ERROR = "authentication_failed";
 
+/** A refusal names its policy category and explanation when the API reports them, so the learner
+ * sees why the turn stopped instead of a generic failure. */
+export function toRefusalMessage(details: CliStopDetails | undefined): string {
+	if (!details) return REFUSAL_MESSAGE;
+	const category = details.category ?? "uncategorized";
+	const explanation = details.explanation?.trim();
+	return explanation ? `${REFUSAL_MESSAGE} (${category}): ${explanation}` : `${REFUSAL_MESSAGE} (${category})`;
+}
+
 export function toEffort(level: ThinkingLevel | undefined): AnthropicEffort {
 	return level ? EFFORTS[level] : "medium";
 }
@@ -83,6 +93,7 @@ type ClaudeArgsInput = {
 	systemPromptFile: string;
 	mcpConfigFile: string;
 	allowedTools: string[];
+	session?: { id: string; resume: boolean };
 };
 
 export function toClaudeArgs(input: ClaudeArgsInput): string[] {
@@ -112,7 +123,7 @@ export function toClaudeArgs(input: ClaudeArgsInput): string[] {
 		"--settings",
 		JSON.stringify({ disableAllHooks: true, outputStyle: "default", env: { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1" } }),
 		"--disable-slash-commands",
-		"--no-session-persistence",
+		...(input.session ? [input.session.resume ? "--resume" : "--session-id", input.session.id] : ["--no-session-persistence"]),
 		"--permission-prompts",
 		"none",
 		...(input.allowedTools.length > 0 ? ["--allowedTools", input.allowedTools.join(",")] : []),
@@ -151,6 +162,7 @@ class ClaudeTurn {
 	private readonly intents: ToolCall[] = [];
 	/** The current message called a harness tool by its bare name; the CLI rejects that call itself. */
 	skippedBareCall = false;
+	private refusal: CliStopDetails | undefined;
 	started = false;
 	finished = false;
 
@@ -219,7 +231,12 @@ class ClaudeTurn {
 
 			case "messageDelta":
 				this.updateUsage(event.usage);
+				if (event.stopDetails) this.refusal = event.stopDetails;
 				if (event.stopReason) this.setStopReason(event.stopReason);
+				return;
+
+			case "refusalDetails":
+				this.refusal = event.stopDetails;
 				return;
 
 			case "messageStop":
@@ -366,7 +383,7 @@ class ClaudeTurn {
 		const { stopReason } = this.output;
 
 		if (stopReason === "error") {
-			this.fail(this.output.errorMessage ?? REFUSAL_MESSAGE, "error");
+			this.fail(this.output.errorMessage ?? toRefusalMessage(this.refusal), "error");
 			return;
 		}
 
@@ -421,6 +438,7 @@ class ClaudeProcess implements LiveProcess {
 	private pendingError: string | undefined;
 	private contextWindow: number | undefined;
 	private contextProbe: ContextWindowProbe | undefined;
+	private handedOff = false;
 
 	constructor(
 		private readonly child: ChildProcessWithoutNullStreams,
@@ -431,13 +449,15 @@ class ClaudeProcess implements LiveProcess {
 		readonly sessionId: string | undefined,
 		private readonly configuration: unknown,
 		private conversation: unknown[],
+		private readonly cliSession: { sessions: CliSessions; id: string } | undefined,
+		private onResumeFailed: (() => void) | undefined,
 	) {}
 
 	start(stdinLine: string, signal: AbortSignal | undefined): void {
 		this.child.once("close", (code: number | null) => this.handleClose(`claude CLI exited with code ${code}`));
 		this.child.once("error", (error) => {
 			console.error("claude CLI process failed:", error);
-			this.turn.fail(START_FAILED_MESSAGE, "error");
+			if (!this.handedOff) this.turn.fail(START_FAILED_MESSAGE, "error");
 			this.handleClose(START_FAILED_MESSAGE);
 		});
 		this.child.stderr.setEncoding("utf8");
@@ -555,11 +575,25 @@ class ClaudeProcess implements LiveProcess {
 		if (signal?.aborted) this.abort();
 	}
 
+	private handOff(reason: string): void {
+		const retry = this.onResumeFailed!;
+		this.onResumeFailed = undefined;
+		this.handedOff = true;
+		console.error("claude CLI resume failed; starting a fresh session:", reason);
+		this.kill();
+		retry();
+	}
+
 	private handleLine(line: string): void {
 		if (this.stopping || !line.trim()) return;
 		if (this.contextProbe?.handle(JSON.parse(line))) return;
 		const event = parseCliLine(line);
 		if (!event) return;
+		// Nothing reached Pi yet, so a resume that cannot find its session moves the turn to a fresh one.
+		if (this.onResumeFailed && !this.turn.started && (event.type === "resultError" || event.type === "assistantError")) {
+			this.handOff(event.type === "resultError" ? event.text : event.error);
+			return;
+		}
 		if (event.type === "toolResults") {
 			if (event.ids.some((id) => this.sourceCalls.some((call) => call.id === id))) {
 				this.fail("claude CLI refused a harness tool call before MCP admission");
@@ -578,7 +612,15 @@ class ClaudeProcess implements LiveProcess {
 		}
 		if (event.type === "messageStart") this.contextProbe?.refresh();
 		this.turn.handle(event);
-		if (this.turn.finished) { this.kill(); return; }
+		if (this.turn.started) this.onResumeFailed = undefined;
+		if (this.turn.finished) {
+			const message = this.turn.getMessage();
+			if (this.cliSession && (message.stopReason === "stop" || message.stopReason === "length")) {
+				this.cliSession.sessions.complete(this.sessionId!, this.cliSession.id, this.configuration, [...this.conversation, ...conversationForReuse([message])]);
+			}
+			this.kill();
+			return;
+		}
 		if (event.type === "messageStop" && this.turn.waitingForAdmission) {
 			const intents = this.turn.getIntents();
 			// Only rejected bare calls: keep the turn open for the model's retry in its next message.
@@ -602,7 +644,8 @@ class ClaudeProcess implements LiveProcess {
 		if (this.pendingError) addLiveProcess(this);
 		this.signal?.removeEventListener("abort", this.abort);
 		if (this.stderr.trim()) console.error("claude CLI stderr:", this.stderr.trim());
-		this.turn.fail(message, "error");
+		if (this.onResumeFailed && !this.turn.started) this.handOff(message);
+		else if (!this.handedOff) this.turn.fail(message, "error");
 		removeTurnResources(this.bridge, this.files).catch((error: unknown) => {
 			console.error("claude CLI cleanup failed:", error);
 		});
@@ -649,9 +692,11 @@ async function startProcess(
 	owner: symbol,
 	configuration: unknown,
 	env: NodeJS.ProcessEnv,
+	cliSessions: CliSessions,
+	launch: CliLaunch | undefined,
 ): Promise<void> {
 	if (options?.signal?.aborted) { turn.fail(ABORT_MESSAGE, "aborted"); return; }
-	const input = toClaudeInput(context.messages);
+	const input = toClaudeInput(context.messages, launch?.resume ? launch.resumeAfter : 0);
 	let cliProcess: ClaudeProcess | undefined;
 	const bridge = await createToolBridge(input.tools, {
 		onCall: () => cliProcess?.flushAdmissions(),
@@ -679,6 +724,7 @@ async function startProcess(
 			systemPromptFile: files.systemPromptFile,
 			mcpConfigFile: files.mcpConfigFile,
 			allowedTools: bridge.allowedTools,
+			session: launch && { id: launch.id, resume: launch.resume },
 		});
 		child = await runClaude(args, { cwd: files.cwd, env, signal: options?.signal });
 	} catch (error) {
@@ -692,12 +738,34 @@ async function startProcess(
 		return;
 	}
 
-	cliProcess = new ClaudeProcess(child, bridge, files, turn, owner, options?.sessionId, configuration, structuredClone(conversationForReuse(context.messages)));
+	cliProcess = new ClaudeProcess(
+		child,
+		bridge,
+		files,
+		turn,
+		owner,
+		options?.sessionId,
+		configuration,
+		structuredClone(conversationForReuse(context.messages)),
+		launch && options?.sessionId ? { sessions: cliSessions, id: launch.id } : undefined,
+		launch?.resume
+			? () => {
+				startProcess(runClaude, turn, model, context, options, owner, configuration, env, cliSessions, freshLaunch())
+					.catch((error: unknown) => failStart(turn, options, error));
+			}
+			: undefined,
+	);
 	cliProcess.start(toStreamJsonLine(input.userContent), options?.signal);
+}
+
+function failStart(turn: ClaudeTurn, options: SimpleStreamOptions | undefined, error: unknown): void {
+	console.error("claude CLI turn failed:", error);
+	turn.fail(options?.signal?.aborted ? ABORT_MESSAGE : error instanceof ClaudeLaunchError ? error.message : START_FAILED_MESSAGE, options?.signal?.aborted ? "aborted" : "error");
 }
 
 export function createClaudeCodeStreamFunction(runClaude: RunClaude): StreamFunction<Api, SimpleStreamOptions> {
 	const owner = Symbol("claude-code stream owner");
+	const cliSessions = new CliSessions();
 	return (model, context, options) => {
 		const stream = createAssistantMessageEventStream();
 		const turn = new ClaudeTurn(stream, model, new Set(getCurrentTools(context.messages).map((tool) => tool.name)));
@@ -707,10 +775,9 @@ export function createClaudeCodeStreamFunction(runClaude: RunClaude): StreamFunc
 		const configuration = { request: configurationForReuse(model, context, toEffort(options?.reasoning)), env };
 		if (continueLiveProcess(turn, owner, options?.sessionId, configuration, context.messages, options?.signal)) return stream;
 
-		startProcess(runClaude, turn, model, context, options, owner, configuration, env).catch((error: unknown) => {
-			console.error("claude CLI turn failed:", error);
-			turn.fail(options?.signal?.aborted ? ABORT_MESSAGE : error instanceof ClaudeLaunchError ? error.message : START_FAILED_MESSAGE, options?.signal?.aborted ? "aborted" : "error");
-		});
+		const launch = options?.sessionId ? cliSessions.begin(options.sessionId, configuration, conversationForReuse(context.messages)) : undefined;
+		startProcess(runClaude, turn, model, context, options, owner, configuration, env, cliSessions, launch)
+			.catch((error: unknown) => failStart(turn, options, error));
 
 		return stream;
 	};
